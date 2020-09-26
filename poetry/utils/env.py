@@ -39,7 +39,7 @@ from poetry.utils._compat import encode
 from poetry.utils._compat import list_to_shell_command
 from poetry.utils._compat import subprocess
 from poetry.utils.toml_file import TomlFile
-
+from poetry.utils._compat import WINDOWS
 
 GET_ENVIRONMENT_INFO = """\
 import json
@@ -452,7 +452,10 @@ class EnvManager(object):
 
         try:
             python_version = Version.parse(python)
-            python = "python{}".format(python_version.major)
+            if WINDOWS:
+                python = "py -{}".format(python_version.major)
+            else:
+                python = "python{}".format(python_version.major)
             if python_version.precision > 1:
                 python += ".{}".format(python_version.minor)
         except ValueError:
