@@ -1,12 +1,13 @@
 import os
 
+from pathlib import Path
+
 import pytest
 import tomlkit
 
 from poetry.core.semver import Version
-from poetry.utils._compat import Path
+from poetry.core.toml.file import TOMLFile
 from poetry.utils.env import MockEnv
-from poetry.utils.toml_file import TomlFile
 from tests.console.commands.env.helpers import build_venv
 from tests.console.commands.env.helpers import check_output_wrapper
 
@@ -21,11 +22,11 @@ def setup(mocker):
 @pytest.fixture(autouse=True)
 def mock_subprocess_calls(setup, current_python, mocker):
     mocker.patch(
-        "poetry.utils._compat.subprocess.check_output",
+        "subprocess.check_output",
         side_effect=check_output_wrapper(Version(*current_python)),
     )
     mocker.patch(
-        "poetry.utils._compat.subprocess.Popen.communicate",
+        "subprocess.Popen.communicate",
         side_effect=[("/prefix", None), ("/prefix", None), ("/prefix", None)],
     )
 
@@ -39,8 +40,7 @@ def test_activate_activates_non_existing_virtualenv_no_envs_file(
     mocker, tester, venv_cache, venv_name, venvs_in_cache_config
 ):
     mocker.patch(
-        "poetry.utils._compat.subprocess.check_output",
-        side_effect=check_output_wrapper(),
+        "subprocess.check_output", side_effect=check_output_wrapper(),
     )
 
     mock_build_env = mocker.patch(
@@ -50,9 +50,11 @@ def test_activate_activates_non_existing_virtualenv_no_envs_file(
     tester.execute("3.7")
 
     venv_py37 = venv_cache / "{}-py3.7".format(venv_name)
-    mock_build_env.assert_called_with(venv_py37, executable="python3.7")
+    mock_build_env.assert_called_with(
+        venv_py37, executable="python3.7", flags={"always-copy": False}
+    )
 
-    envs_file = TomlFile(venv_cache / "envs.toml")
+    envs_file = TOMLFile(venv_cache / "envs.toml")
     assert envs_file.exists()
     envs = envs_file.read()
     assert envs[venv_name]["minor"] == "3.7"
@@ -78,7 +80,7 @@ def test_get_prefers_explicitly_activated_virtualenvs_over_env_var(
     venv_dir = venv_cache / "{}-py{}".format(venv_name, python_minor)
     venv_dir.mkdir(parents=True, exist_ok=True)
 
-    envs_file = TomlFile(venv_cache / "envs.toml")
+    envs_file = TOMLFile(venv_cache / "envs.toml")
     doc = tomlkit.document()
     doc[venv_name] = {"minor": python_minor, "patch": python_patch}
     envs_file.write(doc)

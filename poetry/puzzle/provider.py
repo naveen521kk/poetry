@@ -1,9 +1,10 @@
 import logging
 import os
 import re
-import time
+import urllib.parse
 
 from contextlib import contextmanager
+from pathlib import Path
 from tempfile import mkdtemp
 from typing import Any
 from typing import List
@@ -31,9 +32,6 @@ from poetry.packages import DependencyPackage
 from poetry.packages.package_collection import PackageCollection
 from poetry.puzzle.exceptions import OverrideNeeded
 from poetry.repositories import Pool
-from poetry.utils._compat import OrderedDict
-from poetry.utils._compat import Path
-from poetry.utils._compat import urlparse
 from poetry.utils.env import Env
 from poetry.utils.helpers import download_file
 from poetry.utils.helpers import safe_rmtree
@@ -44,10 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 class Indicator(ProgressIndicator):
-    def _formatter_elapsed(self):
-        elapsed = time.time() - self._start_time
-
-        return "{:.1f}s".format(elapsed)
+    pass
 
 
 class Provider:
@@ -105,7 +100,7 @@ class Provider:
         if dependency.is_root:
             return PackageCollection(dependency, [self._package])
 
-        for constraint in self._search_for.keys():
+        for constraint in self._search_for:
             if (
                 constraint.is_same_package_as(dependency)
                 and constraint.constraint.intersect(dependency.constraint)
@@ -168,6 +163,7 @@ class Provider:
             rev=dependency.rev,
             name=dependency.name,
         )
+        package.develop = dependency.develop
 
         dependency._constraint = package.version
         dependency._pretty_constraint = package.version.text
@@ -327,7 +323,7 @@ class Provider:
     def get_package_from_url(cls, url):  # type: (str) -> Package
         with temporary_directory() as temp_dir:
             temp_dir = Path(temp_dir)
-            file_name = os.path.basename(urlparse.urlparse(url).path)
+            file_name = os.path.basename(urllib.parse.urlparse(url).path)
             download_file(url, str(temp_dir / file_name))
 
             package = cls.get_package_from_file(temp_dir / file_name)
@@ -432,7 +428,7 @@ class Provider:
                 self._pool.package(
                     package.name,
                     package.version.text,
-                    extras=package.dependency.extras,
+                    extras=list(package.dependency.extras),
                     repository=package.dependency.source_name,
                 ),
             )
@@ -453,23 +449,19 @@ class Provider:
                     self.search_for_url(r)
 
         optional_dependencies = []
-        activated_extras = []
-        for extra in package.dependency.extras:
-            if extra not in package.extras:
-                continue
-
-            activated_extras.append(extra)
-            optional_dependencies += [d.name for d in package.extras[extra]]
-
         _dependencies = []
 
         # If some extras/features were required, we need to
         # add a special dependency representing the base package
         # to the current package
         if package.dependency.extras:
-            if activated_extras:
-                package = package.with_features(activated_extras)
+            for extra in package.dependency.extras:
+                if extra not in package.extras:
+                    continue
 
+                optional_dependencies += [d.name for d in package.extras[extra]]
+
+            package = package.with_features(list(package.dependency.extras))
             _dependencies.append(package.without_features().to_dependency())
 
         for dep in requires:
@@ -482,12 +474,12 @@ class Provider:
             if self._env and not dep.marker.validate(self._env.marker_env):
                 continue
 
-            if (
-                dep.is_optional()
-                and dep.name not in optional_dependencies
-                and not package.is_root()
-            ):
-                continue
+            if not package.is_root():
+                if (dep.is_optional() and dep.name not in optional_dependencies) or (
+                    dep.in_extras
+                    and not set(dep.in_extras).intersection(package.dependency.extras)
+                ):
+                    continue
 
             _dependencies.append(dep)
 
@@ -524,7 +516,7 @@ class Provider:
         # An example of this is:
         #   - pypiwin32 (220); sys_platform == "win32" and python_version >= "3.6"
         #   - pypiwin32 (219); sys_platform == "win32" and python_version < "3.6"
-        duplicates = OrderedDict()
+        duplicates = dict()
         for dep in dependencies:
             if dep.name not in duplicates:
                 duplicates[dep.name] = []
@@ -540,7 +532,7 @@ class Provider:
             self.debug("<debug>Duplicate dependencies for {}</debug>".format(dep_name))
 
             # Regrouping by constraint
-            by_constraint = OrderedDict()
+            by_constraint = dict()
             for dep in deps:
                 if dep.constraint not in by_constraint:
                     by_constraint[dep.constraint] = []

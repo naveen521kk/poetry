@@ -2,11 +2,14 @@ from __future__ import unicode_literals
 
 import sys
 
+from pathlib import Path
+
 import pytest
 
 from clikit.io import NullIO
 
 from poetry.core.packages import ProjectPackage
+from poetry.core.toml.file import TOMLFile
 from poetry.factory import Factory
 from poetry.installation import Installer as BaseInstaller
 from poetry.installation.noop_installer import NoopInstaller
@@ -14,20 +17,14 @@ from poetry.packages import Locker as BaseLocker
 from poetry.repositories import Pool
 from poetry.repositories import Repository
 from poetry.repositories.installed_repository import InstalledRepository
-from poetry.utils._compat import PY2
-from poetry.utils._compat import Path
 from poetry.utils.env import MockEnv
 from poetry.utils.env import NullEnv
-from poetry.utils.toml_file import TomlFile
 from tests.helpers import get_dependency
 from tests.helpers import get_package
 from tests.repositories.test_legacy_repository import (
     MockRepository as MockLegacyRepository,
 )
 from tests.repositories.test_pypi_repository import MockRepository
-
-
-fixtures_dir = Path("tests/fixtures")
 
 
 class Installer(BaseInstaller):
@@ -43,7 +40,7 @@ class CustomInstalledRepository(InstalledRepository):
 
 class Locker(BaseLocker):
     def __init__(self):
-        self._lock = TomlFile(Path.cwd().joinpath("poetry.lock"))
+        self._lock = TOMLFile(Path.cwd().joinpath("poetry.lock"))
         self._written_data = None
         self._locked = False
         self._content_hash = self._get_content_hash()
@@ -53,7 +50,7 @@ class Locker(BaseLocker):
         return self._written_data
 
     def set_lock_path(self, lock):
-        self._lock = TomlFile(Path(lock).joinpath("poetry.lock"))
+        self._lock = TOMLFile(Path(lock).joinpath("poetry.lock"))
 
         return self
 
@@ -77,15 +74,6 @@ class Locker(BaseLocker):
     def _write_lock_data(self, data):
         for package in data["package"]:
             python_versions = str(package["python-versions"])
-            if PY2:
-                python_versions = python_versions.decode()
-                if "requirements" in package:
-                    requirements = {}
-                    for key, value in package["requirements"].items():
-                        requirements[key.decode()] = value.decode()
-
-                    package["requirements"] = requirements
-
             package["python-versions"] = python_versions
 
         self._written_data = data
@@ -134,7 +122,7 @@ def installer(package, pool, locker, env, installed, config):
 
 
 def fixture(name):
-    file = TomlFile(Path(__file__).parent / "fixtures" / "{}.test".format(name))
+    file = TOMLFile(Path(__file__).parent / "fixtures" / "{}.test".format(name))
 
     return file.read()
 
@@ -749,8 +737,8 @@ def test_installer_with_pypi_repository(package, locker, installed, config):
     assert locker.written_data == expected
 
 
-def test_run_installs_with_local_file(installer, locker, repo, package):
-    file_path = fixtures_dir / "distributions/demo-0.1.0-py2.py3-none-any.whl"
+def test_run_installs_with_local_file(installer, locker, repo, package, fixture_dir):
+    file_path = fixture_dir("distributions/demo-0.1.0-py2.py3-none-any.whl")
     package.add_dependency(Factory.create_dependency("demo", {"file": str(file_path)}))
 
     repo.add_package(get_package("pendulum", "1.4.4"))
@@ -764,9 +752,11 @@ def test_run_installs_with_local_file(installer, locker, repo, package):
     assert len(installer.installer.installs) == 2
 
 
-def test_run_installs_wheel_with_no_requires_dist(installer, locker, repo, package):
-    file_path = (
-        fixtures_dir / "wheel_with_no_requires_dist/demo-0.1.0-py2.py3-none-any.whl"
+def test_run_installs_wheel_with_no_requires_dist(
+    installer, locker, repo, package, fixture_dir
+):
+    file_path = fixture_dir(
+        "wheel_with_no_requires_dist/demo-0.1.0-py2.py3-none-any.whl"
     )
     package.add_dependency(Factory.create_dependency("demo", {"file": str(file_path)}))
 
@@ -780,9 +770,9 @@ def test_run_installs_wheel_with_no_requires_dist(installer, locker, repo, packa
 
 
 def test_run_installs_with_local_poetry_directory_and_extras(
-    installer, locker, repo, package, tmpdir
+    installer, locker, repo, package, tmpdir, fixture_dir
 ):
-    file_path = fixtures_dir / "project_with_extras"
+    file_path = fixture_dir("project_with_extras")
     package.add_dependency(
         Factory.create_dependency(
             "project-with-extras", {"path": str(file_path), "extras": ["extras_a"]}
@@ -801,9 +791,9 @@ def test_run_installs_with_local_poetry_directory_and_extras(
 
 
 def test_run_installs_with_local_poetry_directory_transitive(
-    installer, locker, repo, package, tmpdir
+    installer, locker, repo, package, tmpdir, fixture_dir
 ):
-    root_dir = fixtures_dir.joinpath("directory")
+    root_dir = fixture_dir("directory")
     package.root_dir = root_dir
     locker.set_lock_path(root_dir)
     directory = root_dir.joinpath("project_with_transitive_directory_dependencies")
@@ -828,16 +818,16 @@ def test_run_installs_with_local_poetry_directory_transitive(
 
 
 def test_run_installs_with_local_poetry_file_transitive(
-    installer, locker, repo, package, tmpdir
+    installer, locker, repo, package, tmpdir, fixture_dir
 ):
-    root_dir = fixtures_dir.joinpath("directory")
+    root_dir = fixture_dir("directory")
     package.root_dir = root_dir
     locker.set_lock_path(root_dir)
     directory = root_dir.joinpath("project_with_transitive_file_dependencies")
     package.add_dependency(
         Factory.create_dependency(
             "project-with-transitive-file-dependencies",
-            {"path": str(directory.relative_to(fixtures_dir.joinpath("directory")))},
+            {"path": str(directory.relative_to(fixture_dir("directory")))},
             root_dir=root_dir,
         )
     )
@@ -855,9 +845,9 @@ def test_run_installs_with_local_poetry_file_transitive(
 
 
 def test_run_installs_with_local_setuptools_directory(
-    installer, locker, repo, package, tmpdir
+    installer, locker, repo, package, tmpdir, fixture_dir
 ):
-    file_path = fixtures_dir / "project_with_setup/"
+    file_path = fixture_dir("project_with_setup/")
     package.add_dependency(
         Factory.create_dependency("project-with-setup", {"path": str(file_path)})
     )
@@ -1515,7 +1505,7 @@ def test_installer_required_extras_should_not_be_removed_when_updating_single_de
     installer.whitelist(["pytest"])
     installer.run()
 
-    assert len(installer.installer.installs) == 6 if not PY2 else 7
+    assert len(installer.installer.installs) == 6
     assert len(installer.installer.updates) == 0
     assert len(installer.installer.removals) == 0
 

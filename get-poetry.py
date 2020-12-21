@@ -159,15 +159,15 @@ def colorize(style, text):
 def temporary_directory(*args, **kwargs):
     try:
         from tempfile import TemporaryDirectory
-
-        with TemporaryDirectory(*args, **kwargs) as name:
-            yield name
     except ImportError:
         name = tempfile.mkdtemp(*args, **kwargs)
 
         yield name
 
         shutil.rmtree(name)
+    else:
+        with TemporaryDirectory(*args, **kwargs) as name:
+            yield name
 
 
 def string_to_bool(value):
@@ -903,7 +903,7 @@ class Installer:
 
         if "zsh" in SHELL:
             zdotdir = os.getenv("ZDOTDIR", HOME)
-            profiles.append(os.path.join(zdotdir, ".zprofile"))
+            profiles.append(os.path.join(zdotdir, ".zshrc"))
 
         bash_profile = os.path.join(HOME, ".bash_profile")
         if os.path.exists(bash_profile):
